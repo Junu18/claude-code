@@ -1,6 +1,8 @@
 `timescale 1ns / 1ps
 
-module master_top (
+module master_top #(
+    parameter TICK_PERIOD_MS = 1000  // Default 1 second, can override in testbench
+) (
     //global signals
     input  logic clk,
     input  logic reset,
@@ -68,10 +70,10 @@ module master_top (
     assign ss = ss_reg;
 
     //===========================================
-    // Tick Generator (1000ms = 1 second period)
+    // Tick Generator (configurable period)
     //===========================================
     tick_gen #(
-        .TICK_PERIOD_MS(1000)  // 1초마다 tick (FND 업데이트)
+        .TICK_PERIOD_MS(TICK_PERIOD_MS)  // Use module parameter
     ) U_TICK_GEN (
         .clk  (clk),
         .reset(reset),

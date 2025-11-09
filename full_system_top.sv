@@ -2,7 +2,10 @@
 
 // Full System Top Module for Single Board Testing
 // Integrates both Master and Slave on one FPGA
-module full_system_top (
+module full_system_top #(
+    parameter TICK_PERIOD_MS = 1000,     // Default 1 second
+    parameter DEBOUNCE_TIME_MS = 20      // Default 20ms
+) (
     // Global signals
     input  logic       clk,          // 100MHz system clock
     input  logic       reset,        // Reset button (center)
@@ -52,14 +55,14 @@ module full_system_top (
     //===========================================
     // Button Debouncers
     //===========================================
-    debouncer #(.DEBOUNCE_TIME_MS(20)) U_DEBOUNCE_RUNSTOP (
+    debouncer #(.DEBOUNCE_TIME_MS(DEBOUNCE_TIME_MS)) U_DEBOUNCE_RUNSTOP (
         .clk    (clk),
         .reset  (reset),
         .btn_in (i_runstop),
         .btn_out(runstop_debounced)
     );
 
-    debouncer #(.DEBOUNCE_TIME_MS(20)) U_DEBOUNCE_CLEAR (
+    debouncer #(.DEBOUNCE_TIME_MS(DEBOUNCE_TIME_MS)) U_DEBOUNCE_CLEAR (
         .clk    (clk),
         .reset  (reset),
         .btn_in (i_clear),
@@ -86,7 +89,9 @@ module full_system_top (
     //===========================================
     // Master Instance
     //===========================================
-    master_top U_MASTER (
+    master_top #(
+        .TICK_PERIOD_MS(TICK_PERIOD_MS)
+    ) U_MASTER (
         .clk             (clk),
         .reset           (reset),
         .i_runstop       (runstop_pulse),   // Use pulse signal for toggle behavior
