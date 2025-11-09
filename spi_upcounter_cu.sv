@@ -45,30 +45,23 @@ module spi_upcounter_cu (
             STOP: begin
                 runstop_next = 1'b0;
                 clear_next   = 1'b0;
-                if (i_clear) begin
-                    state_next = CLEAR;
-                end else if (i_runstop) begin
-                    // 버튼 누르면 RUN으로 전환 (레벨 방식)
+                if (i_runstop) begin
                     state_next = RUN;
+                end else if (i_clear) begin
+                    state_next = CLEAR;
                 end
             end
 
             RUN: begin
                 runstop_next = 1'b1;
-                if (i_clear) begin
-                    state_next = CLEAR;
-                end else if (!i_runstop) begin
-                    // 버튼 떼면 STOP으로 전환 (레벨 방식)
+                if (i_runstop) begin
                     state_next = STOP;
                 end
             end
 
             CLEAR: begin
                 clear_next = 1'b1;
-                if (!i_clear) begin
-                    // 버튼 떼면 STOP으로 전환
-                    state_next = STOP;
-                end
+                state_next = STOP;
             end
         endcase
     end

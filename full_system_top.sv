@@ -34,6 +34,10 @@ module full_system_top (
     logic runstop_debounced;
     logic clear_debounced;
 
+    // Edge-detected pulse signals
+    logic runstop_pulse;
+    logic clear_pulse;
+
     // Output lower 8 bits to LEDs
     assign master_counter = master_counter_full[7:0];
 
@@ -55,13 +59,30 @@ module full_system_top (
     );
 
     //===========================================
+    // Edge Detectors (level -> pulse)
+    //===========================================
+    edge_detector U_EDGE_RUNSTOP (
+        .clk    (clk),
+        .reset  (reset),
+        .i_level(runstop_debounced),
+        .o_pulse(runstop_pulse)
+    );
+
+    edge_detector U_EDGE_CLEAR (
+        .clk    (clk),
+        .reset  (reset),
+        .i_level(clear_debounced),
+        .o_pulse(clear_pulse)
+    );
+
+    //===========================================
     // Master Instance
     //===========================================
     master_top U_MASTER (
         .clk      (clk),
         .reset    (reset),
-        .i_runstop(runstop_debounced),   // Use level signal (hold button to run)
-        .i_clear  (clear_debounced),     // Use level signal (press to clear)
+        .i_runstop(runstop_pulse),   // Use pulse signal for toggle behavior
+        .i_clear  (clear_pulse),     // Use pulse signal for toggle behavior
         .sclk     (sclk_internal),
         .mosi     (mosi_internal),
         .miso     (miso_internal),
