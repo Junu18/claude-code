@@ -9,7 +9,7 @@ module spi_upcounter_dp (
     output logic [13:0] counter
 );
 
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             counter <= 14'd0;
         end else if (i_o_clear) begin

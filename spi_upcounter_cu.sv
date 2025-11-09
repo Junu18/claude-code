@@ -24,7 +24,7 @@ module spi_upcounter_cu (
     assign o_runstop = runstop_reg;
     assign o_clear   = clear_reg;
 
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk, posedge reset) begin
         if (reset) begin
             state       <= STOP;
             runstop_reg <= 1'b0;

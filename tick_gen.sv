@@ -16,14 +16,13 @@ module tick_gen #(
     localparam CLOCKS_PER_MS = 100_000;
     localparam TICK_COUNT = TICK_PERIOD_MS * CLOCKS_PER_MS;
 
-    localparam COUNTER_WIDTH = $clog2(TICK_COUNT);
-
-    logic [COUNTER_WIDTH-1:0] counter;
+    // Use 32-bit counter (large enough for any reasonable tick period)
+    logic [31:0] counter;
     logic tick_reg;
 
     assign tick = tick_reg;
 
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             counter  <= 0;
             tick_reg <= 0;

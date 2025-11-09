@@ -125,7 +125,7 @@ module master_top #(
     //===========================================
 
     // State register
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             state       <= IDLE;
             tx_data_reg <= 8'h00;
