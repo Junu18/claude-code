@@ -16,7 +16,9 @@ module master_top (
     output logic ss,
 
     // debug outputs (optional)
-    output logic [13:0] o_counter
+    output logic [13:0] o_counter,
+    output logic        o_runstop_status,  // CU run/stop state
+    output logic        o_tick             // tick signal for debug
 );
 
     // Internal signals
@@ -51,8 +53,10 @@ module master_top (
     logic [7:0] tx_data_reg, tx_data_next;
     logic ss_reg, ss_next;
 
-    // Debug output
+    // Debug outputs
     assign o_counter = w_counter;
+    assign o_runstop_status = w_o_runstop;
+    assign o_tick = counter_tick;
 
     // Byte splitting: 14-bit counter -> 2 bytes
     // High byte: 2-bit padding + upper 6 bits

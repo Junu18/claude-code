@@ -15,8 +15,10 @@ module full_system_top (
     output logic [3:0] fnd_com,
     output logic [7:0] fnd_data,
 
-    // Debug outputs (Master counter on LEDs)
-    output logic [7:0] master_counter
+    // Debug outputs
+    output logic [7:0] master_counter,  // LED[7:0] = counter value
+    output logic       debug_runstop,   // LED[8] = o_runstop status
+    output logic       debug_tick       // LED[9] = tick signal
 );
 
     // Internal SPI signals (connect Master to Slave)
@@ -38,8 +40,14 @@ module full_system_top (
     logic runstop_pulse;
     logic clear_pulse;
 
+    // Internal debug signals from master
+    logic master_runstop_status;
+    logic master_tick;
+
     // Output lower 8 bits to LEDs
     assign master_counter = master_counter_full[7:0];
+    assign debug_runstop = master_runstop_status;
+    assign debug_tick = master_tick;
 
     //===========================================
     // Button Debouncers
@@ -79,15 +87,17 @@ module full_system_top (
     // Master Instance
     //===========================================
     master_top U_MASTER (
-        .clk      (clk),
-        .reset    (reset),
-        .i_runstop(runstop_pulse),   // Use pulse signal for toggle behavior
-        .i_clear  (clear_pulse),     // Use pulse signal for toggle behavior
-        .sclk     (sclk_internal),
-        .mosi     (mosi_internal),
-        .miso     (miso_internal),
-        .ss       (ss_internal),
-        .o_counter(master_counter_full)
+        .clk             (clk),
+        .reset           (reset),
+        .i_runstop       (runstop_pulse),   // Use pulse signal for toggle behavior
+        .i_clear         (clear_pulse),     // Use pulse signal for toggle behavior
+        .sclk            (sclk_internal),
+        .mosi            (mosi_internal),
+        .miso            (miso_internal),
+        .ss              (ss_internal),
+        .o_counter       (master_counter_full),
+        .o_runstop_status(master_runstop_status),
+        .o_tick          (master_tick)
     );
 
     //===========================================
