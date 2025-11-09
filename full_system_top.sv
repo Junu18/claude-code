@@ -30,8 +30,50 @@ module full_system_top (
     logic [13:0] slave_counter_full;
     logic        slave_data_valid;
 
+    // Debounced button signals
+    logic runstop_debounced;
+    logic clear_debounced;
+
+    // Edge-detected button signals (pulse)
+    logic runstop_pulse;
+    logic clear_pulse;
+
     // Output lower 8 bits to LEDs
     assign master_counter = master_counter_full[7:0];
+
+    //===========================================
+    // Button Debouncers
+    //===========================================
+    debouncer #(.DEBOUNCE_TIME_MS(20)) U_DEBOUNCE_RUNSTOP (
+        .clk    (clk),
+        .reset  (reset),
+        .btn_in (i_runstop),
+        .btn_out(runstop_debounced)
+    );
+
+    debouncer #(.DEBOUNCE_TIME_MS(20)) U_DEBOUNCE_CLEAR (
+        .clk    (clk),
+        .reset  (reset),
+        .btn_in (i_clear),
+        .btn_out(clear_debounced)
+    );
+
+    //===========================================
+    // Edge Detectors (button press = rising edge)
+    //===========================================
+    edge_detector U_EDGE_RUNSTOP (
+        .clk    (clk),
+        .reset  (reset),
+        .i_level(runstop_debounced),
+        .o_pulse(runstop_pulse)
+    );
+
+    edge_detector U_EDGE_CLEAR (
+        .clk    (clk),
+        .reset  (reset),
+        .i_level(clear_debounced),
+        .o_pulse(clear_pulse)
+    );
 
     //===========================================
     // Master Instance
@@ -39,8 +81,8 @@ module full_system_top (
     master_top U_MASTER (
         .clk      (clk),
         .reset    (reset),
-        .i_runstop(i_runstop),
-        .i_clear  (i_clear),
+        .i_runstop(runstop_pulse),   // Use edge-detected pulse
+        .i_clear  (clear_pulse),     // Use edge-detected pulse
         .sclk     (sclk_internal),
         .mosi     (mosi_internal),
         .miso     (miso_internal),
@@ -63,5 +105,27 @@ module full_system_top (
         .o_counter   (slave_counter_full),
         .o_data_valid(slave_data_valid)
     );
+
+endmodule
+
+
+// Edge detector module
+module edge_detector (
+    input  logic clk,
+    input  logic reset,
+    input  logic i_level,  // Debounced level signal
+    output logic o_pulse   // 1-clock pulse signal
+);
+    logic level_reg;
+
+    always_ff @(posedge clk or posedge reset) begin
+        if (reset)
+            level_reg <= 1'b0;
+        else
+            level_reg <= i_level;
+    end
+
+    // Detect rising edge (0 -> 1 transition)
+    assign o_pulse = ~level_reg && i_level;
 
 endmodule

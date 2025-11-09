@@ -64,10 +64,10 @@ module master_top (
     assign ss = ss_reg;
 
     //===========================================
-    // Tick Generator (100ms period)
+    // Tick Generator (1000ms = 1 second period)
     //===========================================
     tick_gen #(
-        .TICK_PERIOD_MS(100)  // 100ms마다 tick
+        .TICK_PERIOD_MS(1000)  // 1초마다 tick (FND 업데이트)
     ) U_TICK_GEN (
         .clk  (clk),
         .reset(reset),
