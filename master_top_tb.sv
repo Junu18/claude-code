@@ -27,6 +27,17 @@ module master_top_tb;
     integer test_failed;
     logic [13:0] counter_values[20];  // Store counter values at each tick
     integer counter_idx;
+    integer all_correct;  // For final summary
+
+    // Test 2 variables
+    logic [13:0] stopped_value;
+
+    // Test 5 variables
+    logic [63:0] tick_time1, tick_time2;
+    logic [63:0] tick_period_ns;
+
+    // Test 6 variables
+    logic cu_stop, cu_run;
 
     // Clock generation: 100MHz (10ns period)
     initial begin
@@ -145,7 +156,7 @@ module master_top_tb;
         // Test 2: Press RUNSTOP again (toggle to STOP)
         // ==========================================
         $display("\n>>> Test 2: Press RUNSTOP button again (stop counting)");
-        logic [13:0] stopped_value = o_counter;
+        stopped_value = o_counter;
         press_button(1);  // Press runstop
 
         if (o_runstop_status == 0) begin
@@ -211,15 +222,13 @@ module master_top_tb;
         // Test 5: Verify tick timing
         // ==========================================
         $display("\n>>> Test 5: Verify tick timing (should be ~1ms apart)");
-        logic [63:0] tick_time1, tick_time2;
 
         @(posedge o_tick);
         tick_time1 = $time;
         @(posedge o_tick);
         tick_time2 = $time;
 
-        logic [63:0] tick_period_ns = tick_time2 - tick_time1;
-        logic [63:0] expected_period_ns = 1000000;  // 1ms in ns
+        tick_period_ns = tick_time2 - tick_time1;
 
         $display("    Tick period: %0d ns (expected ~1,000,000 ns)", tick_period_ns);
         if (tick_period_ns >= 999000 && tick_period_ns <= 1001000) begin
@@ -237,8 +246,8 @@ module master_top_tb;
         press_button(1);  // Stop
         #100;
 
-        logic cu_stop = (DUT.U_SPI_UPCOUNT_CU.state == DUT.U_SPI_UPCOUNT_CU.STOP);
-        logic cu_run = (DUT.U_SPI_UPCOUNT_CU.state == DUT.U_SPI_UPCOUNT_CU.RUN);
+        cu_stop = (DUT.U_SPI_UPCOUNT_CU.state == DUT.U_SPI_UPCOUNT_CU.STOP);
+        cu_run = (DUT.U_SPI_UPCOUNT_CU.state == DUT.U_SPI_UPCOUNT_CU.RUN);
 
         if (cu_stop) begin
             $display("    [PASS] CU in STOP state");
@@ -263,7 +272,7 @@ module master_top_tb;
         $display("=========================================");
 
         $display("\n--- Counter Increment Check ---");
-        integer all_correct = 1;
+        all_correct = 1;
         for (int i = 0; i < 10; i++) begin
             if (counter_values[i] != i) begin
                 all_correct = 0;
