@@ -5,7 +5,7 @@
 module full_system_top (
     // Global signals
     input  logic       clk,          // 100MHz system clock
-    input  logic       reset,        // Reset button (center)
+    input  logic       reset_n,      // Reset button (center) - active low
 
     // Master control buttons
     input  logic       i_runstop,    // BTNU - Run/Stop counter
@@ -29,6 +29,10 @@ module full_system_top (
     logic [13:0] master_counter_full;
     logic [13:0] slave_counter_full;
     logic        slave_data_valid;
+
+    // Reset inversion (convert active-low to active-high)
+    logic reset;
+    assign reset = ~reset_n;
 
     // Debounced button signals
     logic runstop_debounced;
