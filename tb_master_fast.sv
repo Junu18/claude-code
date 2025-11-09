@@ -194,6 +194,24 @@ module tb_master_fast;
     end
 
     //===========================================
+    // Monitor SS (Slave Select) Signal
+    //===========================================
+    logic prev_ss;
+    initial prev_ss = 1'b1;
+
+    always @(posedge clk) begin
+        // Falling edge: Transaction starts
+        if (!ss && prev_ss) begin
+            $display("[%0t ns] ▼ SS: Transaction START (SS goes LOW)", $time);
+        end
+        // Rising edge: Transaction ends
+        if (ss && !prev_ss) begin
+            $display("[%0t ns] ▲ SS: Transaction END (SS goes HIGH)", $time);
+        end
+        prev_ss = ss;
+    end
+
+    //===========================================
     // Waveform Dump
     //===========================================
     initial begin

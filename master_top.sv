@@ -49,6 +49,7 @@ module master_top (
 
     state_t state, state_next;
     logic [7:0] tx_data_reg, tx_data_next;
+    logic ss_reg, ss_next;
 
     // Debug output
     assign o_counter = w_counter;
@@ -59,8 +60,8 @@ module master_top (
     assign tx_high_byte = {2'b00, w_counter[13:8]};
     assign tx_low_byte  = w_counter[7:0];
 
-    // Slave Select (active low, always active in this simple design)
-    assign ss = 1'b0;
+    // Slave Select (active low, controlled by FSM)
+    assign ss = ss_reg;
 
     //===========================================
     // Tick Generator (100ms period)
@@ -121,9 +122,11 @@ module master_top (
         if (reset) begin
             state       <= IDLE;
             tx_data_reg <= 8'h00;
+            ss_reg      <= 1'b1;  // Inactive at reset
         end else begin
             state       <= state_next;
             tx_data_reg <= tx_data_next;
+            ss_reg      <= ss_next;
         end
     end
 
@@ -134,25 +137,28 @@ module master_top (
     always_comb begin
         state_next   = state;
         tx_data_next = tx_data_reg;
+        ss_next      = ss_reg;
         spi_start    = 1'b0;
 
         case (state)
             IDLE: begin
+                ss_next = 1'b1;  // SS inactive (high)
                 if (counter_tick) begin
                     // Tick 발생 시 high byte 전송 준비
                     tx_data_next = tx_high_byte;
+                    ss_next      = 1'b0;  // SS active (low) - 트랜잭션 시작
                     state_next   = SEND_HIGH;
                 end
             end
 
             SEND_HIGH: begin
-                // High byte 전송 시작
-                spi_start  = 1'b1;
+                ss_next   = 1'b0;  // Keep SS active
+                spi_start = 1'b1;
                 state_next = WAIT_HIGH;
             end
 
             WAIT_HIGH: begin
-                // High byte 전송 완료 대기
+                ss_next = 1'b0;  // Keep SS active
                 if (spi_done) begin
                     tx_data_next = tx_low_byte;
                     state_next   = SEND_LOW;
@@ -160,19 +166,22 @@ module master_top (
             end
 
             SEND_LOW: begin
-                // Low byte 전송 시작
-                spi_start  = 1'b1;
+                ss_next   = 1'b0;  // Keep SS active
+                spi_start = 1'b1;
                 state_next = WAIT_LOW;
             end
 
             WAIT_LOW: begin
-                // Low byte 전송 완료 대기
                 if (spi_done) begin
+                    ss_next    = 1'b1;  // SS inactive (high) - 트랜잭션 완료
                     state_next = IDLE;
+                end else begin
+                    ss_next = 1'b0;  // Keep SS active during transmission
                 end
             end
 
             default: begin
+                ss_next    = 1'b1;
                 state_next = IDLE;
             end
         endcase
