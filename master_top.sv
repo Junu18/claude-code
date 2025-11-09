@@ -110,6 +110,7 @@ module master_top (
         .reset      (reset),
         .i_o_runstop(w_o_runstop),
         .i_o_clear  (w_o_clear),
+        .tick       (counter_tick),    // tick 신호 연결 (1초마다)
         .counter    (w_counter)
     );
 
