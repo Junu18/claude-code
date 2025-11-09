@@ -2,6 +2,9 @@
 
 // Full System Top Module for Single Board Testing
 // Integrates both Master and Slave on one FPGA
+// Master SPI signals output to JB port
+// Slave SPI signals input from JC port
+// Connect JB -> JC with jumper wires for testing
 module full_system_top #(
     parameter TICK_PERIOD_MS = 1000,     // Default 1 second
     parameter DEBOUNCE_TIME_MS = 20      // Default 20ms
@@ -14,6 +17,16 @@ module full_system_top #(
     input  logic       i_runstop,    // BTNU - Run/Stop counter
     input  logic       i_clear,      // BTND - Clear counter
 
+    // Master SPI outputs (JB port)
+    output logic       master_sclk,  // JB[0] - Master SCK output
+    output logic       master_mosi,  // JB[1] - Master MOSI output
+    output logic       master_ss,    // JB[2] - Master SS output
+
+    // Slave SPI inputs (JC port)
+    input  logic       slave_sclk,   // JC[0] - Slave SCK input
+    input  logic       slave_mosi,   // JC[1] - Slave MOSI input
+    input  logic       slave_ss,     // JC[2] - Slave SS input
+
     // FND outputs (from Slave)
     output logic [3:0] fnd_com,
     output logic [7:0] fnd_data,
@@ -24,11 +37,9 @@ module full_system_top #(
     output logic       debug_tick       // LED[9] = tick signal
 );
 
-    // Internal SPI signals (connect Master to Slave)
-    logic sclk_internal;
-    logic mosi_internal;
-    logic miso_internal;
-    logic ss_internal;
+    // MISO signals (not used in this design, but needed for module interface)
+    logic master_miso;
+    logic slave_miso;
 
     // Full master counter for debug
     logic [13:0] master_counter_full;
@@ -51,6 +62,10 @@ module full_system_top #(
     assign master_counter = master_counter_full[7:0];
     assign debug_runstop = master_runstop_status;
     assign debug_tick = master_tick;
+
+    // MISO not used, tie to 0
+    assign master_miso = 1'b0;
+    assign slave_miso = 1'b0;
 
     //===========================================
     // Button Debouncers
@@ -87,34 +102,34 @@ module full_system_top #(
     );
 
     //===========================================
-    // Master Instance
+    // Master Instance - Outputs to JB port
     //===========================================
     master_top #(
         .TICK_PERIOD_MS(TICK_PERIOD_MS)
     ) U_MASTER (
         .clk             (clk),
         .reset           (reset),
-        .i_runstop       (runstop_pulse),   // Use pulse signal for toggle behavior
-        .i_clear         (clear_pulse),     // Use pulse signal for toggle behavior
-        .sclk            (sclk_internal),
-        .mosi            (mosi_internal),
-        .miso            (miso_internal),
-        .ss              (ss_internal),
+        .i_runstop       (runstop_pulse),      // Use pulse signal for toggle behavior
+        .i_clear         (clear_pulse),        // Use pulse signal for toggle behavior
+        .sclk            (master_sclk),        // Output to JB[0]
+        .mosi            (master_mosi),        // Output to JB[1]
+        .miso            (master_miso),        // Not used
+        .ss              (master_ss),          // Output to JB[2]
         .o_counter       (master_counter_full),
         .o_runstop_status(master_runstop_status),
         .o_tick          (master_tick)
     );
 
     //===========================================
-    // Slave Instance
+    // Slave Instance - Inputs from JC port
     //===========================================
     slave_top U_SLAVE (
         .clk         (clk),
         .reset       (reset),
-        .sclk        (sclk_internal),
-        .mosi        (mosi_internal),
-        .miso        (miso_internal),
-        .ss          (ss_internal),
+        .sclk        (slave_sclk),             // Input from JC[0]
+        .mosi        (slave_mosi),             // Input from JC[1]
+        .miso        (slave_miso),             // Not used
+        .ss          (slave_ss),               // Input from JC[2]
         .fnd_com     (fnd_com),
         .fnd_data    (fnd_data),
         .o_counter   (slave_counter_full),

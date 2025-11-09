@@ -10,6 +10,11 @@ module full_system_top_tb;
     logic i_runstop;
     logic i_clear;
 
+    // SPI signals (connect Master outputs to Slave inputs)
+    logic master_sclk;
+    logic master_mosi;
+    logic master_ss;
+
     // FND outputs
     logic [3:0] fnd_com;
     logic [7:0] fnd_data;
@@ -45,6 +50,15 @@ module full_system_top_tb;
         .reset        (reset),
         .i_runstop    (i_runstop),
         .i_clear      (i_clear),
+        // Master SPI outputs
+        .master_sclk  (master_sclk),
+        .master_mosi  (master_mosi),
+        .master_ss    (master_ss),
+        // Slave SPI inputs (loopback from master)
+        .slave_sclk   (master_sclk),
+        .slave_mosi   (master_mosi),
+        .slave_ss     (master_ss),
+        // Outputs
         .fnd_com      (fnd_com),
         .fnd_data     (fnd_data),
         .master_counter(master_counter),
