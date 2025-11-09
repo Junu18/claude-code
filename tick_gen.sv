@@ -23,7 +23,7 @@ module tick_gen #(
 
     assign tick = tick_reg;
 
-    always_ff @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk) begin
         if (reset) begin
             counter  <= 0;
             tick_reg <= 0;

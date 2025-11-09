@@ -32,7 +32,7 @@ module spi_master (
     assign rx_data = rx_data_reg;
     assign sclk = sclk_reg;  // Registered output
 
-    always_ff @(posedge clk, posedge reset) begin
+    always_ff @(posedge clk) begin
         if (reset) begin
             state <= IDLE;
             tx_data_reg <= 0;
