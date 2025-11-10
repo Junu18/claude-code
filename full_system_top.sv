@@ -32,9 +32,12 @@ module full_system_top #(
     output logic [7:0] fnd_data,
 
     // Debug outputs
-    output logic [7:0] master_counter,  // LED[7:0] = counter value
+    output logic [7:0] master_counter,  // LED[7:0] = master counter value
     output logic       debug_runstop,   // LED[8] = o_runstop status
-    output logic       debug_tick       // LED[9] = tick signal
+    output logic       debug_tick,      // LED[9] = tick signal
+    output logic [3:0] slave_counter_low, // LED[13:10] = slave counter [3:0]
+    output logic       debug_slave_valid, // LED[14] = slave data valid
+    output logic       debug_spi_active   // LED[15] = SPI active (SS low)
 );
 
     // MISO signals (not used in this design, but needed for module interface)
@@ -58,10 +61,13 @@ module full_system_top #(
     logic master_runstop_status;
     logic master_tick;
 
-    // Output lower 8 bits to LEDs
-    assign master_counter = master_counter_full[7:0];
-    assign debug_runstop = master_runstop_status;
-    assign debug_tick = master_tick;
+    // Output to LEDs for debugging
+    assign master_counter = master_counter_full[7:0];     // LED[7:0]: Master counter
+    assign debug_runstop = master_runstop_status;         // LED[8]: RUN/STOP state
+    assign debug_tick = master_tick;                      // LED[9]: Tick pulse
+    assign slave_counter_low = slave_counter_full[3:0];   // LED[13:10]: Slave counter [3:0]
+    assign debug_slave_valid = slave_data_valid;          // LED[14]: Slave received data
+    assign debug_spi_active = ~slave_ss;                  // LED[15]: SPI active (SS is active low)
 
     // MISO not used, tie to 0
     assign master_miso = 1'b0;
