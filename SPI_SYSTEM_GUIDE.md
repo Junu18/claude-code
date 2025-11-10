@@ -269,7 +269,7 @@ endmodule
 
 ---
 
-### 3. SPI Master Transmitter (`spi_master_tx.sv`)
+### 3. SPI Master Transmitter (`spi_master.sv`)
 
 #### 목적
 14비트 데이터를 2바이트로 나누어 SPI 프로토콜로 전송합니다.
@@ -394,7 +394,7 @@ end
 
 ---
 
-### 4. SPI Slave Receiver (`spi_slave_rx.sv`)
+### 4. SPI Slave Receiver (`spi_slave.sv`)
 
 #### 목적
 Master로부터 2바이트를 받아 14비트로 재조합합니다.
