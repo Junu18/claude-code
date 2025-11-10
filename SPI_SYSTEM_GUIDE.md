@@ -138,8 +138,8 @@ Counter 증가 (0→1→2→...)
     ▼
 14비트 값을 2바이트로 분할
     │
-    ├─ Byte 1: [13:6] (상위 8비트)
-    └─ Byte 2: [5:0] + "00" (하위 6비트 + 패딩)
+    ├─ Byte 1 (High): 2'b00 + [13:8] (패딩 2비트 + 상위 6비트)
+    └─ Byte 2 (Low): [7:0] (하위 8비트)
     │
     ▼
 SPI Master가 2바이트 순차 전송
@@ -269,142 +269,293 @@ endmodule
 
 ---
 
-### 3. SPI Master 모듈 (`spi_master.sv` + `master_top.sv`)
+### 3. SPI Master 시스템
 
-> ⚠️ **중요**: 이 섹션의 설명은 실제 코드와 다릅니다!
-> 올바른 설명은 **`ARCHITECTURE_CORRECTION.md`** 문서를 참고하세요.
-> - `spi_master.sv`: 8비트 SPI 기본 모듈 (FSM: IDLE, CP0, CP1)
-> - `master_top.sv`: 14비트를 2바이트로 나누고 spi_master 2번 호출
-
-#### 목적 (전체 시스템)
-14비트 데이터를 2바이트로 나누어 SPI 프로토콜로 전송합니다.
-
-#### 왜 2바이트로 나누는가?
-- SPI는 보통 8비트(1바이트) 단위로 전송
-- 14비트 데이터를 한 번에 보낼 수 없음
-- 상위 8비트 + 하위 6비트(+패딩 2비트)로 분할
-
-#### 데이터 패킹 방식
-
-```
-14비트 카운터: [13][12][11][10][9][8][7][6][5][4][3][2][1][0]
-
-┌─────────────────────┬───────────────────────┐
-│   Byte 1 (상위)     │    Byte 2 (하위)      │
-├─────────────────────┼───────────────────────┤
-│ [13:6] (8비트)      │ [5:0] + "00" (8비트)  │
-└─────────────────────┴───────────────────────┘
-```
-
-예시: 카운터 = 1234 (10진수) = 0000_0100_1101_0010 (2진수)
-
-```
-Byte 1: 00000100 (상위 8비트) = 4
-Byte 2: 11010000 (하위 6비트 + 00 패딩) = 208
-
-Slave에서 재조합:
-(4 << 6) | (208 >> 2) = 256 + 978 = 1234 ✓
-```
-
-#### FSM (유한 상태 기계) 설계
-
-```
-       ┌─────────┐
-       │  IDLE   │ ← 대기 상태 (SS=HIGH)
-       └────┬────┘
-            │ i_start=1 (tick 신호)
-            ▼
-       ┌─────────┐
-       │  BYTE1  │ ← 첫 번째 바이트 전송
-       └────┬────┘
-            │ bit_count=7 완료
-            ▼
-       ┌─────────┐
-       │  BYTE2  │ ← 두 번째 바이트 전송
-       └────┬────┘
-            │ bit_count=7 완료
-            ▼
-       ┌─────────┐
-       │  DONE   │ ← 전송 완료 (SS=HIGH)
-       └────┬────┘
-            │ 1클럭 대기
-            ▼
-       (IDLE로 복귀)
-```
-
-#### 코드 분석
-
-```systemverilog
-typedef enum logic [1:0] {
-    IDLE  = 2'b00,
-    BYTE1 = 2'b01,  // 첫 번째 바이트 전송
-    BYTE2 = 2'b10,  // 두 번째 바이트 전송
-    DONE  = 2'b11   // 전송 완료
-} state_t;
-
-state_t state, next_state;
-logic [2:0] bit_count;    // 0~7 카운트
-logic [7:0] shift_reg;    // 전송할 데이터
-logic       sclk_reg;     // SCLK 생성
-```
-
-**SCLK 생성 방식:**
-
-```systemverilog
-// SCLK = clk의 반 속도
-// clk:  ┌┐┌┐┌┐┌┐┌┐┌┐┌┐┌┐
-// sclk: ┌──┐  ┌──┐  ┌──┐
-//       └──┘  └──┘  └──┘
-
-assign sclk = (state == BYTE1 || state == BYTE2) ? sclk_reg : 1'b0;
-
-always_ff @(posedge clk) begin
-    if (state == BYTE1 || state == BYTE2)
-        sclk_reg <= ~sclk_reg;  // 토글
-    else
-        sclk_reg <= 1'b0;
-end
-```
-
-**데이터 전송:**
-
-```systemverilog
-// MOSI는 shift_reg의 MSB(최상위 비트)부터 전송
-assign mosi = shift_reg[7];
-
-always_ff @(posedge clk) begin
-    if (sclk_reg && next_sclk == 0) begin  // SCLK 하강 엣지
-        shift_reg <= {shift_reg[6:0], 1'b0};  // 왼쪽으로 시프트
-        bit_count <= bit_count + 1;
-    end
-end
-```
-
-#### 설계 결정 사항
-
-**Q: 왜 FSM을 사용하는가?**
-- A: SPI 전송은 여러 단계로 이루어짐
-  1. 대기 → 2. 첫 번째 바이트 → 3. 두 번째 바이트 → 4. 완료
-  - FSM은 이런 순차적 동작을 명확하게 표현
-
-**Q: 왜 SCLK를 clk/2로 만드는가?**
-- A: SPI 표준에서는 SCLK가 시스템 클럭보다 느려야 함
-  - 너무 빠르면 Slave가 데이터를 읽을 시간이 없음
-  - clk/2는 안전한 속도 (50MHz)
-
-**Q: 왜 하강 엣지에서 데이터를 시프트하는가?**
-- A: SPI Mode 0 사용
-  - SCLK 하강 엣지: Master가 다음 비트 준비
-  - SCLK 상승 엣지: Slave가 비트 읽음
+SPI Master는 두 개의 계층으로 구성됩니다:
+1. `spi_master.sv`: 8비트 단위 SPI 통신 (하드웨어 계층)
+2. `master_top.sv`: 14비트 데이터 분할 및 전송 제어 (애플리케이션 계층)
 
 ---
 
-### 4. SPI Slave Receiver (`spi_slave.sv`)
+#### 3-1. `spi_master.sv` - 기본 SPI 통신 모듈
 
-#### 목적
-Master로부터 2바이트를 받아 14비트로 재조합합니다.
+##### 목적
+- **8비트(1바이트) 단위** SPI 통신
+- SCLK 생성 및 MOSI 데이터 전송
+- 재사용 가능한 범용 SPI 모듈
 
-#### 왜 Synchronizer가 필요한가?
+##### 인터페이스
+```systemverilog
+module spi_master (
+    input  logic       clk,       // 100MHz
+    input  logic       reset,
+    input  logic       start,     // 전송 시작 신호
+    input  logic [7:0] tx_data,   // 전송할 8비트 데이터
+    output logic [7:0] rx_data,   // 수신한 8비트 데이터
+    output logic       tx_ready,  // 전송 준비 완료
+    output logic       done,      // 전송 완료
+    output logic       sclk,      // SPI Clock
+    output logic       mosi,      // Master Out
+    input  logic       miso       // Master In
+);
+```
+
+##### FSM (3-State)
+```
+   ┌─────────┐
+   │  IDLE   │ ← 대기 (tx_ready=1)
+   └────┬────┘
+        │ start=1
+        ▼
+   ┌─────────┐
+   │   CP0   │ ← SCLK Low (50 clk cycles)
+   └────┬────┘
+        │ 50 cycles 완료
+        ▼
+   ┌─────────┐
+   │   CP1   │ ← SCLK High (50 clk cycles)
+   └────┬────┘
+        │ 8비트 완료 시
+        ▼
+   (IDLE로 복귀, done=1)
+```
+
+##### 코드 분석
+```systemverilog
+typedef enum {
+    IDLE,  // 대기
+    CP0,   // Clock Phase 0 (SCLK LOW)
+    CP1    // Clock Phase 1 (SCLK HIGH)
+} state_t;
+
+state_t state, state_next;
+logic [7:0] tx_data_reg, tx_data_next;
+logic [7:0] rx_data_reg, rx_data_next;
+logic [5:0] sclk_counter_reg, sclk_counter_next;  // 0~49
+logic [2:0] bit_counter_reg, bit_counter_next;    // 0~7
+logic sclk_reg, sclk_next;
+
+assign mosi = tx_data_reg[7];  // MSB부터 전송
+assign sclk = sclk_reg;
+```
+
+##### SCLK 생성 (1MHz)
+```
+100MHz / 100 = 1MHz SCLK
+
+CP0: 50 cycles (SCLK=LOW)  → 500ns
+CP1: 50 cycles (SCLK=HIGH) → 500ns
+Total: 1us per bit, 8us per byte
+```
+
+**타이밍 다이어그램:**
+```
+clk (100MHz)  ┌┐┌┐┌┐...┌┐┌┐┌┐...
+              └┘└┘└┘   └┘└┘└┘
+
+sclk_counter  0→1→2...→49→0→1...→49
+              └─ CP0 ──┘ └─ CP1 ──┘
+
+sclk          ────────────┐        ┌────
+                          └────────┘
+              └── 500ns ──┘└ 500ns ┘
+
+mosi          ─────[bit7]──[bit6]──...
+```
+
+##### 핵심 특징
+- **SS 신호 없음**: 외부(master_top)에서 제어
+- **1바이트만 전송**: 여러 바이트는 여러 번 호출
+- **done 신호**: 전송 완료 통지
+
+##### 설계 결정 사항
+
+**Q: 왜 50 클럭씩 사용하는가?**
+- A: 1MHz SCLK 생성 (100MHz / 100 = 1MHz)
+  - Slave가 안정적으로 읽을 수 있는 속도
+
+**Q: 왜 MSB부터 전송하는가?**
+- A: SPI 표준 (Big-Endian)
+  - 네트워크 바이트 순서와 일치
+
+---
+
+#### 3-2. `master_top.sv` - 2바이트 전송 제어 모듈
+
+##### 목적
+- **14비트 카운터**를 2바이트로 분할
+- **spi_master를 2번 호출**하여 순차 전송
+- **SS 신호 제어** (2바이트 전송 동안 LOW 유지)
+
+##### 14비트 → 2바이트 분할
+```systemverilog
+// 카운터: 14비트 [13:0]
+// 분할 방식:
+assign tx_high_byte = {2'b00, w_counter[13:8]};  // 상위 6비트 + 패딩
+assign tx_low_byte  = w_counter[7:0];            // 하위 8비트
+```
+
+**예시:**
+```
+카운터 = 1234 (10진수) = 00_0100_1101_0010
+
+tx_high_byte = 00_000100 = 0x04
+tx_low_byte  = 11010010  = 0xD2
+
+Slave 재조합: {0x04[5:0], 0xD2} = 1234 ✓
+```
+
+##### FSM (5-State)
+```
+    ┌─────────────┐
+    │    IDLE     │ ← SS=HIGH
+    └──────┬──────┘
+           │ counter_tick=1 (1초마다)
+           ▼
+    ┌─────────────┐
+    │  SEND_HIGH  │ ← SS=LOW, spi_start=1
+    └──────┬──────┘      (상위 바이트 전송 시작)
+           ▼
+    ┌─────────────┐
+    │  WAIT_HIGH  │ ← SS=LOW 유지
+    └──────┬──────┘      (spi_done 대기)
+           │ spi_done=1
+           ▼
+    ┌─────────────┐
+    │  SEND_LOW   │ ← SS=LOW, spi_start=1
+    └──────┬──────┘      (하위 바이트 전송 시작)
+           ▼
+    ┌─────────────┐
+    │  WAIT_LOW   │ ← SS=LOW 유지
+    └──────┬──────┘      (spi_done 대기)
+           │ spi_done=1
+           ▼
+    (IDLE로 복귀, SS=HIGH)
+```
+
+##### 코드 분석
+```systemverilog
+typedef enum logic [2:0] {
+    IDLE,
+    SEND_HIGH,
+    WAIT_HIGH,
+    SEND_LOW,
+    WAIT_LOW
+} state_t;
+
+// SS 신호 제어
+assign ss = ss_reg;
+
+case (state)
+    IDLE: begin
+        ss_next = 1'b1;  // SS inactive (HIGH)
+        if (counter_tick) begin
+            tx_data_next = tx_high_byte;
+            ss_next      = 1'b0;  // SS active (LOW) - 트랜잭션 시작
+            state_next   = SEND_HIGH;
+        end
+    end
+
+    SEND_HIGH: begin
+        ss_next   = 1'b0;     // Keep SS active
+        spi_start = 1'b1;     // spi_master 시작
+        state_next = WAIT_HIGH;
+    end
+
+    WAIT_HIGH: begin
+        ss_next = 1'b0;       // Keep SS active
+        if (spi_done) begin
+            tx_data_next = tx_low_byte;
+            state_next   = SEND_LOW;
+        end
+    end
+
+    SEND_LOW: begin
+        ss_next   = 1'b0;
+        spi_start = 1'b1;     // spi_master 다시 시작
+        state_next = WAIT_LOW;
+    end
+
+    WAIT_LOW: begin
+        if (spi_done) begin
+            ss_next    = 1'b1;  // SS inactive (HIGH) - 트랜잭션 완료
+            state_next = IDLE;
+        end else begin
+            ss_next = 1'b0;     // Keep SS active
+        end
+    end
+endcase
+```
+
+##### 타이밍 다이어그램
+```
+tick      ─┐  ┌─────────────────
+           └──┘
+
+SS        ────┐             ┌────
+              └─────────────┘
+              ↑             ↑
+           2바이트 전송   완료
+
+SCLK      ────┐┐┐┐┐┐┐┐┐┐┐┐┐┐┐┐────
+              └┘└┘└┘└┘└┘└┘└┘└┘
+              └─ 8us ─┘└─ 8us ─┘
+
+MOSI      ────[H7...H0][L7...L0]────
+              └ Byte1 ┘└ Byte2 ┘
+```
+
+##### 설계 결정 사항
+
+**Q: 왜 spi_master를 8비트로만 만들었는가?**
+- A: **재사용성과 범용성**
+  - 8비트는 SPI 표준 단위
+  - 다양한 데이터 크기에 재사용 가능
+  - 상위 모듈에서 필요한 만큼 조합
+
+**Q: 왜 SS 신호를 master_top에서 제어하는가?**
+- A: **트랜잭션 경계 제어**
+  - 2바이트를 하나의 메시지로 묶기 위함
+  - SS=LOW 동안이 하나의 트랜잭션
+  - Slave가 바이트 경계를 명확히 인식
+
+**Q: 왜 상위 바이트를 먼저 보내는가?**
+- A: **Big-Endian 방식**
+  - 네트워크 바이트 순서 표준
+  - 디버깅 시 읽기 쉬움
+
+---
+
+### 4. SPI Slave 시스템
+
+SPI Slave도 Master와 같이 두 개의 계층으로 구성됩니다:
+1. `spi_slave.sv`: 8비트 단위 SPI 수신 (하드웨어 계층)
+2. `slave_controller.sv`: 2바이트 수집 및 14비트 재조합 (애플리케이션 계층)
+
+---
+
+#### 4-1. `spi_slave.sv` - 기본 SPI 수신 모듈
+
+##### 목적
+- **8비트(1바이트) 단위** SPI 수신
+- SCLK 상승 엣지에서 MOSI 데이터 수신
+- 재사용 가능한 범용 SPI 모듈
+
+##### 인터페이스
+```systemverilog
+module spi_slave (
+    input  logic       clk,       // 100MHz 시스템 클럭
+    input  logic       reset,
+    input  logic       sclk,      // SPI Clock (from Master)
+    input  logic       mosi,      // Master Out
+    output logic       miso,      // Master In (미사용)
+    input  logic       ss,        // Slave Select (active low)
+    output logic [7:0] rx_data,   // 수신한 8비트 데이터
+    output logic       done       // 1클럭 펄스 (바이트 수신 완료)
+);
+```
+
+##### 왜 Synchronizer가 필요한가?
 
 **클럭 도메인 크로싱 (CDC) 문제:**
 
@@ -419,109 +570,212 @@ Slave 클럭 (100MHz)   ┌┐┌┐┌┐┌┐┌┐┌┐
 - **메타스테이블**: 신호가 클럭 엣지와 정확히 일치하지 않으면 FF가 불안정한 상태
 - **해결책**: 2단 FF로 신호를 동기화
 
-#### Synchronizer 구조
+##### Synchronizer 구조
 
 ```systemverilog
 logic sclk_sync1, sclk_sync2;
 logic mosi_sync1, mosi_sync2;
 logic ss_sync1, ss_sync2;
 
-always_ff @(posedge clk) begin
-    // 첫 번째 단계
-    sclk_sync1 <= sclk;
-    mosi_sync1 <= mosi;
-    ss_sync1   <= ss;
-
-    // 두 번째 단계
-    sclk_sync2 <= sclk_sync1;
-    mosi_sync2 <= mosi_sync1;
-    ss_sync2   <= ss_sync1;
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        sclk_sync1 <= 0;
+        sclk_sync2 <= 0;
+        ss_sync1   <= 1;  // SS inactive
+        ss_sync2   <= 1;
+        mosi_sync1 <= 0;
+        mosi_sync2 <= 0;
+    end else begin
+        // 2단 동기화
+        sclk_sync1 <= sclk;
+        sclk_sync2 <= sclk_sync1;
+        ss_sync1   <= ss;
+        ss_sync2   <= ss_sync1;
+        mosi_sync1 <= mosi;
+        mosi_sync2 <= mosi_sync1;
+    end
 end
 
-// 동기화된 신호 사용
-wire sclk_rising = ~sclk_sync2_prev && sclk_sync2;
+// SCLK 상승 엣지 검출
+assign sclk_rising_edge = sclk_sync1 && !sclk_sync2;
 ```
 
-#### 데이터 수신 과정
+##### 데이터 수신 과정
 
 ```
-1. SS가 LOW로 떨어지면 수신 시작
-2. SCLK 상승 엣지마다 MOSI의 비트를 읽음
-3. 8비트 받으면 byte1에 저장
-4. 다시 8비트 받으면 byte2에 저장
-5. 14비트로 재조합: {byte1, byte2[7:2]}
+1. SS가 LOW이면 수신 활성화
+2. SCLK 상승 엣지마다 MOSI 비트를 shift register로 읽음
+3. 8비트 완료 시 done 신호 1클럭 펄스
+4. slave_controller가 done 신호로 바이트 수신
 ```
 
-#### 코드 분석
+##### 코드 분석
 
 ```systemverilog
-typedef enum logic [1:0] {
-    IDLE  = 2'b00,
-    BYTE1 = 2'b01,
-    BYTE2 = 2'b10,
-    VALID = 2'b11
-} state_t;
+logic [7:0] rx_shift_reg;
+logic [2:0] bit_counter;  // 0~7
+logic       done_reg;
+
+assign rx_data = rx_shift_reg;
+assign done = done_reg;
 
 always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
-        state <= IDLE;
-        bit_count <= 0;
+        rx_shift_reg <= 8'h00;
+        bit_counter  <= 3'd0;
+        done_reg     <= 1'b0;
     end else begin
-        case (state)
-            IDLE: begin
-                if (~ss_sync2) begin  // SS LOW: 시작
-                    state <= BYTE1;
-                    bit_count <= 0;
+        done_reg <= 1'b0;  // Default: clear done
+
+        if (ss_sync2) begin
+            // SS inactive (high) - 리셋
+            rx_shift_reg <= 8'h00;
+            bit_counter  <= 3'd0;
+        end else begin
+            // SS active (low) - 수신
+            if (sclk_rising_edge) begin
+                // MSB first로 비트 수신
+                rx_shift_reg <= {rx_shift_reg[6:0], mosi_sync2};
+                bit_counter  <= bit_counter + 1;
+
+                // 8비트 완료 확인
+                if (bit_counter == 3'd7) begin
+                    done_reg    <= 1'b1;  // 1클럭 펄스
+                    bit_counter <= 3'd0;  // 리셋
                 end
             end
-
-            BYTE1: begin
-                if (sclk_rising) begin  // SCLK 상승 엣지
-                    shift_reg <= {shift_reg[6:0], mosi_sync2};
-                    bit_count <= bit_count + 1;
-
-                    if (bit_count == 7) begin
-                        byte1 <= {shift_reg[6:0], mosi_sync2};
-                        state <= BYTE2;
-                        bit_count <= 0;
-                    end
-                end
-            end
-
-            BYTE2: begin
-                if (sclk_rising) begin
-                    shift_reg <= {shift_reg[6:0], mosi_sync2};
-                    bit_count <= bit_count + 1;
-
-                    if (bit_count == 7) begin
-                        byte2 <= {shift_reg[6:0], mosi_sync2};
-                        state <= VALID;
-                    end
-                end
-            end
-
-            VALID: begin
-                o_data_valid <= 1;
-                // 14비트 재조합
-                o_data <= {byte1, byte2[7:2]};
-                state <= IDLE;
-            end
-        endcase
+        end
     end
 end
 ```
 
-#### 설계 결정 사항
+##### 핵심 특징
+- **FSM 없음**: 단순 shift register 기반
+- **8비트만 수신**: 여러 바이트는 done 신호로 상위 모듈이 처리
+- **done 펄스**: 바이트 완료 시 1클럭 신호
+
+---
+
+#### 4-2. `slave_controller.sv` - 2바이트 수집 및 재조합 모듈
+
+##### 목적
+- **spi_slave로부터 2바이트 수집**
+- **14비트로 재조합**
+- **트랜잭션 경계 관리** (SS 신호 모니터링)
+
+##### FSM (4-State)
+```
+    ┌─────────────┐
+    │    IDLE     │
+    └──────┬──────┘
+           │ ss=LOW (트랜잭션 시작)
+           ▼
+    ┌─────────────┐
+    │ WAIT_HIGH   │ ← 첫 번째 바이트 대기
+    └──────┬──────┘
+           │ done=1
+           ▼
+    ┌─────────────┐
+    │ WAIT_LOW    │ ← 두 번째 바이트 대기
+    └──────┬──────┘
+           │ done=1
+           ▼
+    ┌─────────────┐
+    │ DATA_READY  │ ← 14비트 재조합
+    └──────┬──────┘
+           │ ss=HIGH (트랜잭션 완료)
+           ▼
+    (IDLE로 복귀)
+```
+
+##### 코드 분석
+```systemverilog
+typedef enum logic [1:0] {
+    IDLE,
+    WAIT_HIGH,
+    WAIT_LOW,
+    DATA_READY
+} state_t;
+
+logic [7:0] high_byte_reg, high_byte_next;
+logic [7:0] low_byte_reg, low_byte_next;
+logic [13:0] counter_reg, counter_next;
+
+case (state)
+    IDLE: begin
+        // SS LOW 대기 (트랜잭션 시작)
+        if (!ss_sync2) begin
+            state_next = WAIT_HIGH;
+        end
+    end
+
+    WAIT_HIGH: begin
+        // 첫 번째 바이트 대기
+        if (ss_rising_edge) begin
+            // 트랜잭션 중단
+            state_next = IDLE;
+        end else if (done) begin
+            // 상위 바이트 수신
+            high_byte_next = rx_data;
+            state_next     = WAIT_LOW;
+        end
+    end
+
+    WAIT_LOW: begin
+        // 두 번째 바이트 대기
+        if (ss_rising_edge) begin
+            // 트랜잭션 중단
+            state_next = IDLE;
+        end else if (done) begin
+            // 하위 바이트 수신
+            low_byte_next = rx_data;
+            state_next    = DATA_READY;
+        end
+    end
+
+    DATA_READY: begin
+        // 14비트 재조합
+        counter_next = {high_byte_reg[5:0], low_byte_reg[7:0]};
+        data_valid_next = 1'b1;  // 유효 데이터 신호
+
+        // SS 상승 엣지 대기 (트랜잭션 완료)
+        if (ss_rising_edge) begin
+            state_next = IDLE;
+        end
+    end
+endcase
+```
+
+##### 핵심 특징
+- **SS 엣지 검출**: 트랜잭션 경계 감지
+- **2바이트 순차 수집**: WAIT_HIGH → WAIT_LOW
+- **14비트 재조합**: {high[5:0], low[7:0]}
+- **data_valid 펄스**: FND 업데이트 신호
+
+##### 설계 결정 사항
+
+**Q: 왜 spi_slave를 8비트로만 만들었는가?**
+- A: **재사용성과 범용성**
+  - 8비트는 SPI 표준 단위
+  - 다양한 프로토콜에 재사용 가능
+  - 상위 모듈에서 필요한 만큼 조합
 
 **Q: 왜 2단 Synchronizer를 사용하는가?**
-- A: 1단은 메타스테이블 발생 가능성이 높음
-  - 2단을 사용하면 메타스테이블이 시스템에 전파될 확률이 매우 낮아짐 (10^-12 이하)
+- A: **메타스테이블 방지**
+  - 1단은 메타스테이블 발생 가능성이 높음
+  - 2단을 사용하면 시스템 전파 확률이 매우 낮아짐 (10^-12 이하)
 
 **Q: 왜 상승 엣지에서 데이터를 읽는가?**
-- A: SPI Mode 0 규칙
+- A: **SPI Mode 0 규칙**
   - Master는 하강 엣지에서 데이터 준비
   - Slave는 상승 엣지에서 데이터 읽음
-  - 이렇게 하면 데이터가 안정적인 시점에 읽을 수 있음
+  - 데이터가 안정적인 시점에 읽을 수 있음
+
+**Q: 왜 slave_controller를 분리했는가?**
+- A: **관심사의 분리 (Separation of Concerns)**
+  - spi_slave: 하드웨어 프로토콜 처리
+  - slave_controller: 애플리케이션 로직 처리
+  - SS 엣지 감지로 트랜잭션 경계 명확화
 
 ---
 
