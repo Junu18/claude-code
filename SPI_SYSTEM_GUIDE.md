@@ -1080,12 +1080,17 @@ Basys3 FPGA 보드
 │  - BTNU: Run/Stop              │
 │  - BTND: Clear                 │
 │                                 │
-│  LED:                           │
-│  - LED[7:0]: Counter 값        │
+│  LED (Master):                  │
+│  - LED[7:0]: Master Counter    │
 │  - LED[8]: Run/Stop 상태       │
 │  - LED[9]: Tick 신호           │
 │                                 │
-│  FND: 4자리 카운터 표시        │
+│  LED (Slave 디버깅):           │
+│  - LED[10-13]: Slave Counter[3:0] │
+│  - LED[14]: Slave Data Valid   │
+│  - LED[15]: SPI Active (SS)    │
+│                                 │
+│  FND: 4자리 Slave 카운터 표시 │
 └─────────────────────────────────┘
 ```
 
@@ -1135,52 +1140,102 @@ Slave: slave_top.sv 사용
 ### LED로 상태 확인
 
 ```systemverilog
-// LED[7:0]: Counter 값 (2진수)
+// Master 상태 LED
+// LED[7:0]: Master Counter 값 (2진수)
 // LED[8]: RunStop 상태 (1=RUN, 0=STOP)
 // LED[9]: Tick 신호 (1초마다 깜빡임)
 
-예시:
-Counter = 5 (0b00000101)
-RunStop = RUN
-Tick = 깜빡임
+// Slave 디버깅 LED (추가됨)
+// LED[10-13]: Slave Counter[3:0] (하위 4비트)
+// LED[14]: Slave Data Valid (SPI 수신 성공 시 켜짐)
+// LED[15]: SPI Active (SS 신호, 전송 중 깜빡임)
 
-LED: 0 1 0 0 0 0 0 1 0 1
-     ↑             ↑ ↑ ↑
-    tick       runstop │
-                    counter=5
+예시: Master Counter = 5, Slave도 정상 수신
+LED[15-0]: 1 1 0 1 0 1 0 0 0 0 0 1 0 1
+           ↑ ↑ ↑─┬─↑ ↑           ↑─┬─↑
+          SPI│ Slave │          Master=5
+         Active Valid=5
+
+정상 동작 시:
+- LED[7:0]와 LED[10-13]이 같이 증가 (Master = Slave)
+- LED[14] 계속 켜짐 (데이터 수신 성공)
+- LED[15] 1초마다 짧게 깜빡임 (SPI 전송)
 ```
 
 ### 예상 동작
 
 1. **리셋 후**
-   - LED[7:0] = 0
-   - LED[8] = 0 (STOP)
+   - LED[7:0] = 0 (Master 카운터)
+   - LED[8] = 0 (STOP 상태)
    - LED[9] = 깜빡임 (tick은 계속 발생)
+   - LED[10-13] = 0 (Slave 카운터)
+   - LED[14] = 0 (아직 데이터 없음)
+   - LED[15] = 0 (SPI 비활성)
    - FND = "0000"
 
 2. **BTNU 누름 (RUN 시작)**
-   - LED[8] = 1 (RUN)
-   - 1초마다 LED[7:0] 증가
-   - FND도 1초마다 증가
+   - LED[8] = 1 (RUN 상태)
+   - 1초마다:
+     - LED[7:0] 증가 (Master 카운터)
+     - LED[15] 짧게 깜빡 (SPI 전송)
+     - LED[10-13] 증가 (Slave 카운터)
+     - LED[14] = 1 (데이터 수신 성공)
+     - FND 값 증가
 
 3. **BTNU 다시 누름 (STOP)**
-   - LED[8] = 0 (STOP)
-   - LED[7:0] 고정
+   - LED[8] = 0 (STOP 상태)
+   - LED[7:0] 고정 (Master 정지)
+   - LED[10-13] 고정 (Slave도 정지)
+   - LED[15] = 0 (SPI 전송 없음)
    - FND 고정
 
 4. **BTND 누름 (CLEAR)**
-   - LED[7:0] = 0
+   - LED[7:0] = 0 (Master 초기화)
+   - LED[10-13] = 0 (Slave 초기화)
    - FND = "0000"
 
 ### 문제 해결
 
 | 증상 | 원인 | 해결 |
 |------|------|------|
-| FND가 안 켜짐 | JB-JC 미연결 | 점퍼 와이어 확인 |
-| FND가 깜빡임 | 연결 불량 | 와이어 재연결 |
+| FND가 "0000"만 표시 | SPI 통신 실패 | LED[15] 확인 (점퍼 와이어) |
+| LED[15]가 안 깜빡임 | Master SPI 미동작 | Master 코드 확인 |
+| LED[15]는 깜빡이는데 LED[14]가 꺼짐 | Slave 수신 실패 | 점퍼 와이어 재연결 |
+| LED[14]는 켜지는데 FND가 안 증가 | FND 컨트롤러 문제 | slave_top 확인 |
+| LED[10-13]과 LED[7:0]이 다름 | 동기화 문제 | 드물게 발생, 무시 가능 |
 | 카운터가 안 증가 | STOP 상태 | BTNU로 RUN 시작 |
 | 버튼이 안 먹힘 | Debouncer 시간 | 20ms 파라미터 확인 |
 | LED[9]가 안 깜빡임 | Tick 생성 문제 | tick_gen 모듈 확인 |
+
+#### SPI 통신 디버깅 순서
+
+1. **LED[9] 확인**: 1초마다 깜빡이는가?
+   - NO → Tick Generator 문제
+   - YES → 다음 단계
+
+2. **LED[8] 확인**: RUN 상태인가?
+   - NO → BTNU 버튼 누름
+   - YES → 다음 단계
+
+3. **LED[7:0] 확인**: 1초마다 증가하는가?
+   - NO → Counter/FSM 문제
+   - YES → Master 정상, 다음 단계
+
+4. **LED[15] 확인**: 1초마다 짧게 깜빡이는가?
+   - NO → SPI Master TX 문제
+   - YES → Master 전송 정상, 다음 단계
+
+5. **LED[14] 확인**: 켜져 있는가?
+   - NO → **점퍼 와이어 연결 확인!**
+   - YES → SPI 수신 성공, 다음 단계
+
+6. **LED[10-13] 확인**: LED[7:0]의 하위 4비트와 같은가?
+   - NO → Slave 카운터 업데이트 문제
+   - YES → 전체 시스템 정상!
+
+7. **FND 확인**: 숫자가 증가하는가?
+   - NO → FND Controller 문제
+   - YES → 완벽!
 
 ---
 
@@ -1243,6 +1298,16 @@ LED: 0 1 0 0 0 0 0 1 0 1
 ✅ **디바운싱** (Button Debouncer)
 ✅ **엣지 검출** (Edge Detector)
 ✅ **동적 스캔** (FND Controller)
+✅ **디버깅 기법** (LED 상태 표시)
+
+### 성공적인 구현 확인
+
+정상 동작 시 다음을 확인할 수 있습니다:
+- **FND**: 1초마다 증가하는 카운터 표시 (0000→0001→0002→...)
+- **LED[7:0]**: Master 카운터 (2진수)
+- **LED[10-13]**: Slave 카운터 (Master와 동일)
+- **LED[14]**: 항상 켜짐 (SPI 수신 성공)
+- **LED[15]**: 1초마다 짧게 깜빡임 (SPI 전송)
 
 각 모듈의 **설계 이유**를 이해하면, 다른 FPGA 프로젝트에도 응용할 수 있습니다.
 
@@ -1259,5 +1324,19 @@ LED: 0 1 0 0 0 0 0 1 0 1
 ---
 
 **문서 작성일**: 2025-01-09
-**버전**: 1.0
+**최종 수정일**: 2025-01-10
+**버전**: 1.1
 **프로젝트**: SPI Master-Slave Counter System
+
+### 변경 이력
+
+**v1.1** (2025-01-10)
+- 디버깅 LED 추가 (LED[10-15])
+- SPI 통신 디버깅 순서 가이드 추가
+- 문제 해결 섹션 확장
+- 성공적인 구현 확인 섹션 추가
+
+**v1.0** (2025-01-09)
+- 초기 문서 작성
+- 전체 시스템 설계 설명
+- 모든 모듈 상세 분석
