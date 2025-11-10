@@ -269,9 +269,14 @@ endmodule
 
 ---
 
-### 3. SPI Master Transmitter (`spi_master.sv`)
+### 3. SPI Master 모듈 (`spi_master.sv` + `master_top.sv`)
 
-#### 목적
+> ⚠️ **중요**: 이 섹션의 설명은 실제 코드와 다릅니다!
+> 올바른 설명은 **`ARCHITECTURE_CORRECTION.md`** 문서를 참고하세요.
+> - `spi_master.sv`: 8비트 SPI 기본 모듈 (FSM: IDLE, CP0, CP1)
+> - `master_top.sv`: 14비트를 2바이트로 나누고 spi_master 2번 호출
+
+#### 목적 (전체 시스템)
 14비트 데이터를 2바이트로 나누어 SPI 프로토콜로 전송합니다.
 
 #### 왜 2바이트로 나누는가?
